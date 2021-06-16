@@ -26,7 +26,65 @@
 TracerouteResults::TracerouteResults(std::shared_ptr<flow_map_t> flows, const uint8_t min_ttl = 1, const bool broken_nat = true, const bool use_srcport_for_path_generation = true):
 		flows_(flows), min_ttl(min_ttl), compressed_(false), broken_nat_(broken_nat), use_srcport_for_path_generation_(use_srcport_for_path_generation) {
 }
+std::shared_ptr<Tins::IP> TracerouteResults::match_packet_tcp(const Tins::Packet &packet){
+    // Is this an IP packet?
+    Tins::IP ip;
+    try {
+        ip = packet.pdu()->rfind_pdu<Tins::IP>();
+    } catch (Tins::pdu_not_found) {
+        return nullptr;
+    }
+    // Does it contain a TCP response?
+    Tins::TCP tcp;
+    try {
+        tcp = ip.rfind_pdu<Tins::TCP>();
+    } catch (Tins::pdu_not_found) {
+        return nullptr;
+    }
 
+    // Check if it is matching
+    // TODO Add more requirements, such as looking up expected addresses.
+    bool has_rst = tcp.get_flag(Tins::TCP::RST);
+    bool has_synack = tcp.flags() == (Tins::TCP::SYN|Tins::TCP::ACK);
+    bool has_port_match = tcp.dport() == (tcp.ack_seq()-1);
+    bool matching = (has_rst | has_synack) && has_port_match;
+    if(!matching){
+        return nullptr;
+    }
+    std::cout << ip.src_addr() << "\n";
+    std::cout << ip.dst_addr() << "\n";
+    std::cout << tcp.dport() << "\n";
+    std::cout << tcp.sport() << "\n";
+    std::cout << tcp.ack_seq()-1 << "\n";
+    std::cout << "----------------" << "\n";
+    auto flow_id = tcp.dport();
+
+    std::shared_ptr<Hops> hops;
+    try {
+        hops = flows().at(flow_id);
+    } catch (std::out_of_range) {
+        return nullptr;
+    }
+
+    for (auto &hop: *hops) {
+        // FIXME catch Tins::pdu_not_found
+        auto &sent = hop.sent()->rfind_pdu<Tins::IP>();
+/*        if (!broken_nat_) {
+            if (sent.src_addr() != inner_ip.src_addr())
+                continue;
+        }*/
+        // FIXME catch Tins::pdu_not_found
+        //auto &udp = hop.sent()->rfind_pdu<Tins::TCP>();
+        try {
+            hop.received(ip, packet.timestamp());
+            return std::make_shared<Tins::IP>(ip);
+        } catch (std::out_of_range) {
+            // this should never happen
+            throw;
+        }
+    }
+    return nullptr;
+}
 
 std::shared_ptr<Tins::IP> TracerouteResults::match_packet(const Tins::Packet &packet) {
 	// Is this an IP packet?
@@ -80,7 +138,7 @@ std::shared_ptr<Tins::IP> TracerouteResults::match_packet(const Tins::Packet &pa
 		return nullptr;
 	}
 
-	unsigned int index = 0;
+
 	for (auto &hop: *hops) {
 		// FIXME catch Tins::pdu_not_found
 		auto &sent = hop.sent()->rfind_pdu<Tins::IP>();
@@ -113,7 +171,6 @@ std::shared_ptr<Tins::IP> TracerouteResults::match_packet(const Tins::Packet &pa
 				throw;
 			}
 		}
-		index++;
 	}
 	return nullptr;
 }
@@ -180,6 +237,7 @@ void TracerouteResults::show(std::ostream &stream) {
 						}
 					}
 				} catch (Tins::pdu_not_found) {
+                    // Do nothing
 				}
 
 				/* NAT detection.
@@ -187,12 +245,15 @@ void TracerouteResults::show(std::ostream &stream) {
 				 * responding, the detected NAT could have been
 				 * started before
 				 */
-				auto inner_ip = hop.received()->rfind_pdu<Tins::RawPDU>().to<Tins::IP>();
-				stream << ", NAT ID: " << hop.nat_id();
-				if (hopnum > 1 && hop.nat_id() != prev_nat_id)
-					stream << " (NAT detected)";
-				prev_nat_id = hop.nat_id();
-
+				try {
+                    auto inner_ip = hop.received()->rfind_pdu<Tins::RawPDU>().to<Tins::IP>();
+                    stream << ", NAT ID: " << hop.nat_id();
+                    if (hopnum > 1 && hop.nat_id() != prev_nat_id)
+                        stream << " (NAT detected)";
+                    prev_nat_id = hop.nat_id();
+                } catch (Tins::pdu_not_found){
+				    // Do nothing
+				}
 				// Show the flow hash for the sent packet
 				stream << ", flow hash: " << hop.flowhash();
 

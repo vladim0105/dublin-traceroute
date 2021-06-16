@@ -30,6 +30,7 @@ extern int errno;
 #include "dublintraceroute/dublin_traceroute.h"
 #include "dublintraceroute/hops.h"
 #include "dublintraceroute/udpv4probe.h"
+#include "dublintraceroute/tcpv4probe.h"
 
 /*
  * Dublin Traceroute
@@ -263,10 +264,114 @@ std::shared_ptr<TracerouteResults> DublinTraceroute::traceroute() {
 	if (!no_dns()) {
 		match_hostnames(*results, flows);
 	}
+	// TCP deadline
+    std::chrono::steady_clock::time_point tcp_deadline = \
+		std::chrono::steady_clock::now() + \
+		std::chrono::milliseconds(SNIFFER_TIMEOUT_MS*10) + \
+		std::chrono::milliseconds(delay() * num_packets);
+	// TCP Listener thread
+	sock = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
+    if (sock == -1) {
+        throw std::runtime_error(strerror(errno));
+    }
+    ts_flag = 1;
+    if ((ret = setsockopt(sock, SOL_SOCKET, SO_TIMESTAMP, (int *)&ts_flag, sizeof(ts_flag))) == -1) {
+        throw std::runtime_error(strerror(errno));
+    }
+    std::thread tcp_listener_thread(
+            [&]() {
+                size_t received;
+                char buf[512];
+                struct msghdr msg;
+                memset(&msg, 0, sizeof(msg));
+                struct iovec iov[1];
+                iov[0].iov_base = buf;
+                iov[0].iov_len = sizeof(buf);
+                msg.msg_iov = iov;
+                msg.msg_iovlen = sizeof(iov) / sizeof(struct iovec);
+                struct csmghdr *cmsg;
+                msg.msg_control = cmsg;
+                msg.msg_controllen = 0;
+                while (std::chrono::steady_clock::now() <= tcp_deadline) {
+                    received = recvmsg(sock, &msg, MSG_DONTWAIT);
+                    if (received == -1) {
+                        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                            std::cerr << strerror(errno) << std::endl;
+                        }
+                    } else if (msg.msg_flags & MSG_TRUNC) {
+                        std::cerr << "Warning: received datagram too large for buffer" << std::endl;
+                    } else if (received < 20) {
+                        std::cerr << "Warning: short read, less than 20 bytes" << std::endl;
+                    } else if (buf[0] >> 4 == 4) {
+                        // is it IP version 4? Then enqueue it
+                        // for processing
+                        Tins::IP *ip;
+                        try {
+                            ip = new Tins::IP((const uint8_t *)buf, received);
+                        } catch (Tins::malformed_packet&) {
+                            std::cerr << "Warning: malformed packet" << std::endl;
+                            continue;
+                        }
+                        // Tins::Timestamp is a timeval struct,
+                        // so no monotonic clock anyway..
+                        auto timestamp = extract_timestamp_from_msg((struct msghdr &)msg);
+                        Tins::Packet packet = Tins::Packet((Tins::PDU *)ip, timestamp);
+                        handler(packet);
+                        delete ip;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
+                close(sock);
+            }
+    );
+    // Send TCP SYN to all the nodes in a flow and use this rtt
+    std::shared_ptr<flow_map_t> ping_flows(new flow_map_t);
 
+    for (auto &iter : *flows){
+        Hops pings;
+        uint16_t port = iter.first;
+        for(auto &node : *iter.second){
+            if(!node){
+                continue;
+            }
+            // Use the src address of the ICMP response
+            Tins::IPv4Address remote_address = node.received()->src_addr();
+            // Remote port 80 seems to be the port that gets the most TCP responses
+            TCPv4Probe *probe = new TCPv4Probe(remote_address, 80, port, 100);
+            Tins::IP *packet;
+            // Send it
+            try {
+                packet = &probe->send();
+                std::cerr << "Sent packet to " << remote_address << "\n";
+            } catch (std::runtime_error &e) {
+                tcp_listener_thread.join();
+                std::stringstream ss;
+                ss << "Cannot send packet: " << e.what();
+                throw DublinTracerouteException(ss.str());
+            }
+            auto now = Tins::Timestamp::current_time();
+
+            try {
+                Hop ping;
+                ping.sent(*packet);
+                ping.sent_timestamp(now);
+                pings.push_back(ping);
+            } catch (std::runtime_error e) {
+                std::stringstream ss;
+                ss << "Cannot find flow: " << port << ": " << e.what();
+                throw DublinTracerouteException(ss.str());
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(delay()));
+        }
+        ping_flows->insert(std::make_pair(port, std::make_shared<Hops>(pings)));
+    }
+    tcp_listener_thread.join();
+    TracerouteResults *ping_results = new TracerouteResults(ping_flows, min_ttl_, broken_nat(), use_srcport_for_path_generation());
+
+    match_sniffed_packets_tcp(*ping_results);
 	mutex_tracerouting.unlock();
 
-	return std::make_shared<TracerouteResults>(*results);
+	return std::make_shared<TracerouteResults>(*ping_results);
 }
 
 
@@ -281,7 +386,10 @@ void DublinTraceroute::match_sniffed_packets(TracerouteResults &results) {
 	for (auto &packet: sniffed_packets)
 		results.match_packet(*packet);
 }
-
+void DublinTraceroute::match_sniffed_packets_tcp(TracerouteResults &results) {
+    for (auto &packet: sniffed_packets)
+        results.match_packet_tcp(*packet);
+}
 
 void DublinTraceroute::match_hostnames(TracerouteResults &results, std::shared_ptr<flow_map_t> flows) {
 	// TODO make this asynchronous

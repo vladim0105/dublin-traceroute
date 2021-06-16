@@ -39,6 +39,7 @@ public:
 	~TracerouteResults() { };
 	inline flow_map_t &flows() { return *flows_; }
 	std::shared_ptr<Tins::IP> match_packet(const Tins::Packet &packet);
+	std::shared_ptr<Tins::IP> match_packet_tcp(const Tins::Packet &packet);
 	void show(std::ostream &stream=std::cerr);
 	void compress();
 	std::string to_json();

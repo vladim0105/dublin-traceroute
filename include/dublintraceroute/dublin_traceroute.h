@@ -171,6 +171,7 @@ public:
 private:
 	bool sniffer_callback(Tins::Packet& packet);
 	void match_sniffed_packets(TracerouteResults &results);
+	void match_sniffed_packets_tcp(TracerouteResults &results);
 	void match_hostnames(TracerouteResults &results, std::shared_ptr<flow_map_t> flows);
 };
 
