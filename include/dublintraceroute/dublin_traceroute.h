@@ -167,11 +167,13 @@ public:
 	inline const Tins::IPv4Address &target() const { return target_; }
 	void target(const Tins::IPv4Address &addr) { target_ = addr; }
 	std::shared_ptr<TracerouteResults> traceroute();
+    std::shared_ptr<TracerouteResults> tcp_traceroute(std::shared_ptr<flow_map_t>& traceroute_flows);
+    std::shared_ptr<flow_map_t> combine_flows(std::shared_ptr<flow_map_t> traceroute_flows, std::shared_ptr<flow_map_t> tcp_flows);
 
 private:
 	bool sniffer_callback(Tins::Packet& packet);
 	void match_sniffed_packets(TracerouteResults &results);
-	void match_sniffed_packets_tcp(TracerouteResults &results);
+	void match_sniffed_packets_tcp(TracerouteResults &results, const std::shared_ptr<flow_map_t>& traceroute_flows);
 	void match_hostnames(TracerouteResults &results, std::shared_ptr<flow_map_t> flows);
 };
 

@@ -46,7 +46,11 @@ void Hop::sent_timestamp(const Tins::Timestamp &timestamp) {
 void Hop::name(std::string &name) {
 	name_ = name;
 }
-
+void Hop::set_tcp(const Tins::Timestamp &sent_timestamp, const Tins::Timestamp &received_timestamp){
+	has_tcp_ = true;
+	tcp_sent_timestamp_ = std::make_shared<Tins::Timestamp>(sent_timestamp);
+	tcp_received_timestamp_ = std::make_shared<Tins::Timestamp>(received_timestamp);
+}
 std::string Hop::resolve() {
 	if (!received())
 		return std::string();
@@ -143,6 +147,15 @@ unsigned int Hop::rtt() {
 		return 0;
 	}
 }
+unsigned int Hop::rtt_tcp() {
+	if (has_tcp()) {
+		unsigned long long ts1 = tcp_sent_timestamp()->seconds() * 1000000 + tcp_sent_timestamp()->microseconds();
+		unsigned long long ts2 = tcp_received_timestamp()->seconds() * 1000000 + tcp_received_timestamp()->microseconds();
+		return ts2 - ts1;
+	} else {
+		return 0;
+	}
+}
 
 /** \brief Method that computes the flow hash of a given packet
  *
@@ -193,9 +206,13 @@ Json::Value Hop::to_json() {
 
 	// Serialize the sent packet
 	root["is_last"] = is_last_hop();
+	root["has_tcp"] = has_tcp();
 	if (received())
 		root["zerottl_forwarding_bug"] = zerottl_forwarding_bug();
 	root["sent"]["timestamp"] = std::to_string(sent_timestamp()->seconds()) + "." + std::to_string(sent_timestamp()->microseconds());
+	if(has_tcp()){
+		root["sent"]["tcp_timestamp"] = std::to_string(tcp_sent_timestamp()->seconds()) + "." + std::to_string(tcp_sent_timestamp()->microseconds());
+	}
 
 	// flow hash
 	root["flowhash"] = flowhash();
@@ -216,6 +233,10 @@ Json::Value Hop::to_json() {
 	// If present, serialize the received packet
 	if (received()) {
 		root["rtt_usec"] = rtt();
+		root["rtt_tcp_usec"] = rtt_tcp();
+		if(has_tcp()){
+			root["received"]["tcp_timestamp"] = std::to_string(tcp_received_timestamp()->seconds()) + "." + std::to_string(tcp_received_timestamp()->microseconds());
+		}
 		root["received"]["timestamp"] = std::to_string(received_timestamp()->seconds()) + "." + std::to_string(received_timestamp()->microseconds());
 
 		// IP layer
@@ -232,50 +253,13 @@ Json::Value Hop::to_json() {
 			root["received"]["icmp"]["description"] = icmpm.get(icmp.type(), icmp.code());
 			root["received"]["icmp"]["extensions"] = Json::Value(Json::arrayValue);
 			root["received"]["icmp"]["mpls_labels"] = Json::Value(Json::arrayValue);
-			if (icmp.has_extensions()) {
-				for (auto &extension : icmp.extensions().extensions()) {
-					Json::Value ext_node = Json::Value();
-					unsigned int size = static_cast<unsigned int>(extension.size());
-					unsigned int ext_class = static_cast<unsigned int>(extension.extension_class());
-					unsigned int ext_type = static_cast<unsigned int>(extension.extension_type());
-					auto &payload = extension.payload();
-					// hex-encoding every byte so the JSON file doesn't contain binary sequences
-					// I could have used base64 or other more efficient encoding, but this is simple and requires no deps
-					std::stringstream payload_hex;
-					for (auto &ch : payload) {
-						payload_hex << std::setfill('0') << std::setw(2) << std::hex << static_cast<int>(ch);
-					}
-					ext_node["size"] = size;  // 16 bits
-					ext_node["class"] = ext_class;  // 8 bits
-					ext_node["type"] = ext_type;  // 8 bits
-					ext_node["payload"] = payload_hex.str();
-					root["received"]["icmp"]["extensions"].append(ext_node);
-
-					// if MPLS was encountered, also add parsed extension
-					if (ext_class == ICMP_EXTENSION_MPLS_CLASS && ext_type == ICMP_EXTENSION_MPLS_TYPE) {
-						// FIXME here I am assuming that size is always a multiple of 4
-						for (unsigned int idx = 0; idx < payload.size(); idx += 4) {
-							unsigned int label = (payload[idx] << 12) + (payload[idx + 1] << 4) + (payload[idx + 2] >> 4);
-							unsigned int experimental = (payload[idx + 2] & 0x0f) >> 1;
-							unsigned int bottom_of_stack = payload[idx + 2] & 0x01;
-							unsigned int ttl = payload[idx + 3];
-							Json::Value mpls_node = Json::Value();
-							mpls_node["label"] = label;
-							mpls_node["experimental"] = experimental;
-							mpls_node["bottom_of_stack"] = bottom_of_stack;
-							mpls_node["ttl"] = ttl;
-							root["received"]["icmp"]["mpls_labels"].append(mpls_node);
-						}
-					}
-				}
-			}
 		} catch (Tins::pdu_not_found) {
 		}
 	} else {
 		root["received"] = nullvalue;
 		root["rtt_usec"] = nullvalue;
+		root["rtt_tcp_usec"] = nullvalue;
 	}
-
 	// set the DNS name
 	root["name"] = name();
 

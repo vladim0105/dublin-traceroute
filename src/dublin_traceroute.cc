@@ -264,18 +264,30 @@ std::shared_ptr<TracerouteResults> DublinTraceroute::traceroute() {
 	if (!no_dns()) {
 		match_hostnames(*results, flows);
 	}
-	// TCP deadline
+	auto ping_results = tcp_traceroute(flows);
+    mutex_tracerouting.unlock();
+    return std::make_shared<TracerouteResults>(*ping_results);
+}
+std::shared_ptr<TracerouteResults> DublinTraceroute::tcp_traceroute(std::shared_ptr<flow_map_t>& traceroute_flows) {
+    // TCP deadline
+    uint16_t num_packets = (max_ttl() - min_ttl() + 1) * npaths();
     std::chrono::steady_clock::time_point tcp_deadline = \
 		std::chrono::steady_clock::now() + \
-		std::chrono::milliseconds(SNIFFER_TIMEOUT_MS*10) + \
+		std::chrono::milliseconds(SNIFFER_TIMEOUT_MS) + \
 		std::chrono::milliseconds(delay() * num_packets);
-	// TCP Listener thread
-	sock = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
+	// Setup handler
+    auto handler = std::bind(
+            &DublinTraceroute::sniffer_callback,
+            this,
+            std::placeholders::_1
+    );
+    // TCP Listener thread
+    int sock = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
     if (sock == -1) {
         throw std::runtime_error(strerror(errno));
     }
-    ts_flag = 1;
-    if ((ret = setsockopt(sock, SOL_SOCKET, SO_TIMESTAMP, (int *)&ts_flag, sizeof(ts_flag))) == -1) {
+    int ts_flag = 1;
+    if ((setsockopt(sock, SOL_SOCKET, SO_TIMESTAMP, (int *)&ts_flag, sizeof(ts_flag))) == -1) {
         throw std::runtime_error(strerror(errno));
     }
     std::thread tcp_listener_thread(
@@ -314,12 +326,12 @@ std::shared_ptr<TracerouteResults> DublinTraceroute::traceroute() {
                         }
                         // Tins::Timestamp is a timeval struct,
                         // so no monotonic clock anyway..
-                        auto timestamp = extract_timestamp_from_msg((struct msghdr &)msg);
+                        auto timestamp = Tins::Timestamp::current_time();
                         Tins::Packet packet = Tins::Packet((Tins::PDU *)ip, timestamp);
                         handler(packet);
                         delete ip;
                     }
-                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                    std::this_thread::sleep_for(std::chrono::microseconds (300));
                 }
                 close(sock);
             }
@@ -327,9 +339,10 @@ std::shared_ptr<TracerouteResults> DublinTraceroute::traceroute() {
     // Send TCP SYN to all the nodes in a flow and use this rtt
     std::shared_ptr<flow_map_t> ping_flows(new flow_map_t);
 
-    for (auto &iter : *flows){
+    for (auto &iter : *traceroute_flows){
         Hops pings;
         uint16_t port = iter.first;
+        std::cerr << "----" << "\n";
         for(auto &node : *iter.second){
             if(!node){
                 continue;
@@ -337,7 +350,7 @@ std::shared_ptr<TracerouteResults> DublinTraceroute::traceroute() {
             // Use the src address of the ICMP response
             Tins::IPv4Address remote_address = node.received()->src_addr();
             // Remote port 80 seems to be the port that gets the most TCP responses
-            TCPv4Probe *probe = new TCPv4Probe(remote_address, 80, port, 100);
+            TCPv4Probe *probe = new TCPv4Probe(remote_address, 80, port, node.sent()->ttl());
             Tins::IP *packet;
             // Send it
             try {
@@ -350,7 +363,6 @@ std::shared_ptr<TracerouteResults> DublinTraceroute::traceroute() {
                 throw DublinTracerouteException(ss.str());
             }
             auto now = Tins::Timestamp::current_time();
-
             try {
                 Hop ping;
                 ping.sent(*packet);
@@ -366,14 +378,13 @@ std::shared_ptr<TracerouteResults> DublinTraceroute::traceroute() {
         ping_flows->insert(std::make_pair(port, std::make_shared<Hops>(pings)));
     }
     tcp_listener_thread.join();
-    TracerouteResults *ping_results = new TracerouteResults(ping_flows, min_ttl_, broken_nat(), use_srcport_for_path_generation());
 
-    match_sniffed_packets_tcp(*ping_results);
-	mutex_tracerouting.unlock();
+    auto *ping_results = new TracerouteResults(ping_flows, min_ttl_, broken_nat(), use_srcport_for_path_generation());
 
-	return std::make_shared<TracerouteResults>(*ping_results);
+    match_sniffed_packets_tcp(*ping_results, traceroute_flows);
+
+    return std::make_shared<TracerouteResults>(*ping_results);
 }
-
 
 bool DublinTraceroute::sniffer_callback(Tins::Packet &packet) {
 	std::lock_guard<std::mutex> lock(mutex_sniffed_packets);
@@ -381,14 +392,14 @@ bool DublinTraceroute::sniffer_callback(Tins::Packet &packet) {
 	return true;
 }
 
-
 void DublinTraceroute::match_sniffed_packets(TracerouteResults &results) {
 	for (auto &packet: sniffed_packets)
 		results.match_packet(*packet);
 }
-void DublinTraceroute::match_sniffed_packets_tcp(TracerouteResults &results) {
+void
+DublinTraceroute::match_sniffed_packets_tcp(TracerouteResults &results, const std::shared_ptr<flow_map_t>& traceroute_flows) {
     for (auto &packet: sniffed_packets)
-        results.match_packet_tcp(*packet);
+        results.match_packet_tcp(*packet, traceroute_flows);
 }
 
 void DublinTraceroute::match_hostnames(TracerouteResults &results, std::shared_ptr<flow_map_t> flows) {

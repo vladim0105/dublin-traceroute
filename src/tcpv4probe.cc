@@ -33,7 +33,9 @@ Tins::IP* TCPv4Probe::forge() {
 		Tins::TCP(remote_port_, local_port_);
 	Tins::TCP *tcp = &packet->rfind_pdu<Tins::TCP>();
 	tcp->set_flag(Tins::TCP::SYN, 1);
-    tcp->seq(local_port_);
+    tcp->seq(ttl_);
+    std::cerr << unsigned(ttl_) << "\n";
+    //packet->ttl(ttl_*2);
 	// serialize the packet so we can extract source IP and checksum
     //packet->serialize();
 

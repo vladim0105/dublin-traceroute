@@ -32,8 +32,11 @@ private:
 	std::shared_ptr<Tins::IP> received_;
 	std::shared_ptr<Tins::Timestamp> sent_timestamp_;
 	std::shared_ptr<Tins::Timestamp> received_timestamp_;
+    std::shared_ptr<Tins::Timestamp> tcp_sent_timestamp_;
+    std::shared_ptr<Tins::Timestamp> tcp_received_timestamp_;
 	std::string name_ = "";
 	bool last_hop_;
+	bool has_tcp_;
 public:
 	Hop(): last_hop_(false) { }
 	std::shared_ptr<Tins::IP> sent() { return sent_; }
@@ -41,6 +44,8 @@ public:
 	std::string name() { return name_; }
 	std::shared_ptr<Tins::Timestamp> received_timestamp() { return received_timestamp_; }
 	std::shared_ptr<Tins::Timestamp> sent_timestamp() { return sent_timestamp_; }
+    std::shared_ptr<Tins::Timestamp> tcp_received_timestamp() { return received_timestamp_; }
+    std::shared_ptr<Tins::Timestamp> tcp_sent_timestamp() { return sent_timestamp_; }
 	std::string resolve();
 	uint16_t nat_id();
 	const bool zerottl_forwarding_bug();
@@ -49,8 +54,11 @@ public:
 	void name(std::string &name);
 	void sent_timestamp(const Tins::Timestamp &timestamp);
 	const bool is_last_hop() const { return last_hop_; }
+    const bool has_tcp() const { return has_tcp_; }
 	void is_last_hop(bool is_last) { last_hop_ = is_last; }
+    void set_tcp(const Tins::Timestamp &sent_timestamp, const Tins::Timestamp &received_timestamp);
 	unsigned int rtt();
+	unsigned int rtt_tcp();
 	const uint16_t flowhash();
 	operator bool() const { return (bool)received_; }
 	Json::Value to_json();
