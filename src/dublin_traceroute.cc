@@ -265,8 +265,13 @@ std::shared_ptr<TracerouteResults> DublinTraceroute::traceroute() {
 		match_hostnames(*results, flows);
 	}
 	auto ping_results = tcp_traceroute(flows);
+	auto combined_flows = combine_flows(flows, std::make_shared<flow_map_t>(ping_results->flows()));
+	auto combined_results = new TracerouteResults(combined_flows, min_ttl_, broken_nat(), use_srcport_for_path_generation());
     mutex_tracerouting.unlock();
-    return std::make_shared<TracerouteResults>(*ping_results);
+    if(syn()){
+        return std::make_shared<TracerouteResults>(*combined_results);
+    }
+    return std::make_shared<TracerouteResults>(*results);
 }
 std::shared_ptr<TracerouteResults> DublinTraceroute::tcp_traceroute(std::shared_ptr<flow_map_t>& traceroute_flows) {
     // TCP deadline
@@ -337,36 +342,37 @@ std::shared_ptr<TracerouteResults> DublinTraceroute::tcp_traceroute(std::shared_
             }
     );
     // Send TCP SYN to all the nodes in a flow and use this rtt
-    std::shared_ptr<flow_map_t> ping_flows(new flow_map_t);
+    std::shared_ptr<flow_map_t> tcp_flows(new flow_map_t);
 
     for (auto &iter : *traceroute_flows){
         Hops pings;
         uint16_t port = iter.first;
-        std::cerr << "----" << "\n";
         for(auto &node : *iter.second){
+            Hop ping;
             if(!node){
+                auto *probe = new TCPv4Probe(nullptr, 80, port, node.sent()->ttl());
+                ping.sent(*probe->forge());
+                ping.sent_timestamp(Tins::Timestamp::current_time());
+                pings.push_back(ping);
                 continue;
             }
             // Use the src address of the ICMP response
             Tins::IPv4Address remote_address = node.received()->src_addr();
             // Remote port 80 seems to be the port that gets the most TCP responses
-            TCPv4Probe *probe = new TCPv4Probe(remote_address, 80, port, node.sent()->ttl());
+            auto *probe = new TCPv4Probe(remote_address, 80, port, node.sent()->ttl());
             Tins::IP *packet;
             // Send it
             try {
                 packet = &probe->send();
-                std::cerr << "Sent packet to " << remote_address << "\n";
             } catch (std::runtime_error &e) {
                 tcp_listener_thread.join();
                 std::stringstream ss;
                 ss << "Cannot send packet: " << e.what();
                 throw DublinTracerouteException(ss.str());
             }
-            auto now = Tins::Timestamp::current_time();
             try {
-                Hop ping;
                 ping.sent(*packet);
-                ping.sent_timestamp(now);
+                ping.sent_timestamp(Tins::Timestamp::current_time());
                 pings.push_back(ping);
             } catch (std::runtime_error e) {
                 std::stringstream ss;
@@ -375,17 +381,44 @@ std::shared_ptr<TracerouteResults> DublinTraceroute::tcp_traceroute(std::shared_
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(delay()));
         }
-        ping_flows->insert(std::make_pair(port, std::make_shared<Hops>(pings)));
+        tcp_flows->insert(std::make_pair(port, std::make_shared<Hops>(pings)));
     }
     tcp_listener_thread.join();
 
-    auto *ping_results = new TracerouteResults(ping_flows, min_ttl_, broken_nat(), use_srcport_for_path_generation());
+    auto *tcp_results = new TracerouteResults(tcp_flows, min_ttl_, broken_nat(), use_srcport_for_path_generation());
 
-    match_sniffed_packets_tcp(*ping_results, traceroute_flows);
+    match_sniffed_packets_tcp(*tcp_results, traceroute_flows);
 
-    return std::make_shared<TracerouteResults>(*ping_results);
+
+
+    return std::make_shared<TracerouteResults>(*tcp_results);
 }
+std::shared_ptr<flow_map_t> DublinTraceroute::combine_flows(const std::shared_ptr<flow_map_t>& traceroute_flows, const std::shared_ptr<flow_map_t>& tcp_flows){
+    std::shared_ptr<flow_map_t> combined_flows(new flow_map_t);
+    for (auto &iter : *traceroute_flows){
+        uint16_t flow_id = iter.first;
+        Hops tcp_hops = *tcp_flows->at(flow_id);
+        int index = 0;
+        Hops combined_hops;
+        for(auto &node : *iter.second){
+            Hop combined_hop;
+            auto tcp_node = tcp_hops.at(index);
+            combined_hop.sent(*node.sent());
+            combined_hop.sent_timestamp(*node.sent_timestamp());
+            if(node.received()){
+                combined_hop.received(*node.received(), *node.received_timestamp());
+                if(tcp_node.received()){
+                    combined_hop.set_tcp(*tcp_node.sent_timestamp(),* tcp_node.received_timestamp());
+                }
 
+            }
+            combined_hops.push_back(combined_hop);
+            index++;
+        }
+        combined_flows->insert(std::make_pair(flow_id, std::make_shared<Hops>(combined_hops)));
+    }
+    return combined_flows;
+}
 bool DublinTraceroute::sniffer_callback(Tins::Packet &packet) {
 	std::lock_guard<std::mutex> lock(mutex_sniffed_packets);
 	sniffed_packets.push_back(std::make_shared<Tins::Packet>(packet));

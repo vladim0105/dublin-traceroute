@@ -22,6 +22,7 @@ const char *shortopts = "hvs:d:n:t:T:D:biNo:";
 const struct option longopts[] = {
 	{"help", no_argument, NULL, 'h'},
 	{"version", no_argument, NULL, 'v'},
+    {"syn", no_argument, NULL, 'S'},
 	{"sport", required_argument, NULL, 's'},
 	{"dport", required_argument, NULL, 'd'},
 	{"npaths", required_argument, NULL, 'n'},
@@ -41,7 +42,8 @@ static void usage() {
 R"(Written by Andrea Barberio - https://insomniac.slackware.it
 
 Usage:
-   )" PROGNAME R"(<target> [--sport=src_base_port]
+   )" PROGNAME R"(<target> [--syn]
+                             [--sport=src_base_port]
                              [--dport=dest_base_port]
                              [--npaths=num_paths]
                              [--min-ttl=min_ttl]
@@ -57,6 +59,7 @@ Usage:
 Options:
   -h --help                     this help
   -v --version                  print the version of Dublin Traceroute
+  -S --syn                      in addition to UDP/ICMP use TCP SYN packets to calculate RTT (default: )" << DublinTraceroute::default_syn << R"()
   -s SRC_PORT --sport=SRC_PORT  the source port to send packets from (default: )" << DublinTraceroute::default_srcport << R"()
   -d DST_PORT --dport=DST_PORT  the base destination port to send packets to (default: )" << DublinTraceroute::default_dstport << R"()
   -n NPATHS --npaths=NPATHS     the number of paths to probe (default: )" << static_cast<int>(DublinTraceroute::default_npaths) << R"()
@@ -86,6 +89,7 @@ main(int argc, char **argv) {
 	long	min_ttl = DublinTraceroute::default_min_ttl;
 	long	max_ttl = DublinTraceroute::default_max_ttl;
 	long	delay = DublinTraceroute::default_delay;
+	bool    syn = DublinTraceroute::default_syn;
 	bool	broken_nat = DublinTraceroute::default_broken_nat;
 	bool	use_srcport_for_path_generation = DublinTraceroute::default_use_srcport_for_path_generation;
 	bool	no_dns = DublinTraceroute::default_no_dns;
@@ -116,6 +120,9 @@ main(int argc, char **argv) {
 			case 'v':
 				std::cerr << "Dublin Traceroute " << VERSION << std::endl;
 				std::exit(EXIT_SUCCESS);
+            case 'S':
+                syn = true;
+                break;
 			case 's':
 				TO_LONG(sport, optarg);
 				break;
@@ -208,6 +215,7 @@ main(int argc, char **argv) {
 	DublinTraceroute Dublin(
 			target,
 			type,
+			syn,
 			sport,
 			dport,
 			npaths,

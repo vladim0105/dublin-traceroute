@@ -68,7 +68,7 @@ private:
 				 min_ttl_,
 				 max_ttl_;
 	const uint16_t		 delay_;
-	const bool		 broken_nat_,
+	const bool		 syn_, broken_nat_,
 				 use_srcport_for_path_generation_,
 				 no_dns_;
 	std::mutex		 mutex_tracerouting,
@@ -85,12 +85,14 @@ public:
 	static const uint8_t	 default_min_ttl = 1;
 	static const uint8_t	 default_max_ttl = 30;
 	static const uint16_t	 default_delay = 10;
+	static const bool    default_syn = false;
 	static const bool	 default_broken_nat = false;
 	static const bool	 default_use_srcport_for_path_generation = false;
 	static const bool	 default_no_dns = false;
 	DublinTraceroute(
 			const std::string &dst,
 			const probe_type type = default_type,
+			const bool syn = default_syn,
 			const uint16_t srcport = default_srcport,
 			const uint16_t dstport = default_dstport,
 			const uint8_t npaths = default_npaths,
@@ -103,6 +105,7 @@ public:
 			):
 				dst_(dst),
 				type_(type),
+				syn_(syn),
 				srcport_(srcport),
 				dstport_(dstport),
 				npaths_(npaths),
@@ -122,12 +125,14 @@ public:
 			const uint8_t min_ttl = default_min_ttl,
 			const uint8_t max_ttl = default_max_ttl,
 			const uint16_t delay = default_delay,
+			const bool syn = default_syn,
 			const bool broken_nat = default_broken_nat,
 			const bool use_srcport_for_path_generation = default_use_srcport_for_path_generation,
 			const bool no_dns = default_no_dns
 		       ):
 				dst_(std::string(dst)),
 				type_(type),
+                syn_(syn),
 				srcport_(srcport),
 				dstport_(dstport),
 				npaths_(npaths),
@@ -142,6 +147,7 @@ public:
 	DublinTraceroute(const DublinTraceroute& source):
 		dst_(source.dst_),
 		type_(source.type_),
+        syn_(source.syn_),
 		srcport_(source.srcport_),
 		dstport_(source.dstport_),
 		npaths_(source.npaths_),
@@ -155,6 +161,7 @@ public:
 
 	inline const std::string &dst() const { return dst_; }
 	inline const probe_type type() const { return static_cast<probe_type>(type_); }
+    inline const bool syn() const { return syn_; }
 	inline const uint16_t srcport() const { return srcport_; }
 	inline const uint16_t dstport() const { return dstport_; }
 	inline const uint8_t npaths() const { return npaths_; }
@@ -166,15 +173,16 @@ public:
 	inline const bool use_srcport_for_path_generation() const { return use_srcport_for_path_generation_; }
 	inline const Tins::IPv4Address &target() const { return target_; }
 	void target(const Tins::IPv4Address &addr) { target_ = addr; }
-	std::shared_ptr<TracerouteResults> traceroute();
-    std::shared_ptr<TracerouteResults> tcp_traceroute(std::shared_ptr<flow_map_t>& traceroute_flows);
-    std::shared_ptr<flow_map_t> combine_flows(std::shared_ptr<flow_map_t> traceroute_flows, std::shared_ptr<flow_map_t> tcp_flows);
+    std::shared_ptr<TracerouteResults> traceroute();
+
 
 private:
 	bool sniffer_callback(Tins::Packet& packet);
 	void match_sniffed_packets(TracerouteResults &results);
 	void match_sniffed_packets_tcp(TracerouteResults &results, const std::shared_ptr<flow_map_t>& traceroute_flows);
 	void match_hostnames(TracerouteResults &results, std::shared_ptr<flow_map_t> flows);
+    std::shared_ptr<TracerouteResults> tcp_traceroute(std::shared_ptr<flow_map_t>& traceroute_flows);
+    std::shared_ptr<flow_map_t> combine_flows(const std::shared_ptr<flow_map_t>& traceroute_flows, const std::shared_ptr<flow_map_t>& tcp_flows);
 };
 
 #endif /* _Dublin_TRACEROUTE_H */

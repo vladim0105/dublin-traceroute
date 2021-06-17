@@ -38,14 +38,14 @@ private:
 	bool last_hop_;
 	bool has_tcp_;
 public:
-	Hop(): last_hop_(false) { }
+	Hop(): last_hop_(false), has_tcp_(false) { }
 	std::shared_ptr<Tins::IP> sent() { return sent_; }
 	std::shared_ptr<Tins::IP> received() { return received_; }
 	std::string name() { return name_; }
 	std::shared_ptr<Tins::Timestamp> received_timestamp() { return received_timestamp_; }
 	std::shared_ptr<Tins::Timestamp> sent_timestamp() { return sent_timestamp_; }
-    std::shared_ptr<Tins::Timestamp> tcp_received_timestamp() { return received_timestamp_; }
-    std::shared_ptr<Tins::Timestamp> tcp_sent_timestamp() { return sent_timestamp_; }
+    std::shared_ptr<Tins::Timestamp> tcp_received_timestamp() { return tcp_received_timestamp_; }
+    std::shared_ptr<Tins::Timestamp> tcp_sent_timestamp() { return tcp_sent_timestamp_; }
 	std::string resolve();
 	uint16_t nat_id();
 	const bool zerottl_forwarding_bug();

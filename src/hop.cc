@@ -79,7 +79,6 @@ void Hop::received(Tins::IP &packet, const Tins::Timestamp &timestamp) {
 	received_ = std::make_shared<Tins::IP>(packet);
 	received_timestamp_ = std::make_shared<Tins::Timestamp>(timestamp);
 }
-
 /** \brief return the NAT ID of the hop
  *
  * This method returns the NAT identifier for this hop. The NAT identifier is
@@ -233,9 +232,11 @@ Json::Value Hop::to_json() {
 	// If present, serialize the received packet
 	if (received()) {
 		root["rtt_usec"] = rtt();
-		root["rtt_tcp_usec"] = rtt_tcp();
 		if(has_tcp()){
+            root["rtt_tcp_usec"] = rtt_tcp();
 			root["received"]["tcp_timestamp"] = std::to_string(tcp_received_timestamp()->seconds()) + "." + std::to_string(tcp_received_timestamp()->microseconds());
+		} else {
+            root["rtt_tcp_usec"] = nullvalue;
 		}
 		root["received"]["timestamp"] = std::to_string(received_timestamp()->seconds()) + "." + std::to_string(received_timestamp()->microseconds());
 

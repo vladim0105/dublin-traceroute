@@ -68,13 +68,10 @@ TracerouteResults::match_packet_tcp(const Tins::Packet &packet, std::shared_ptr<
     } catch (std::out_of_range) {
         return nullptr;
     }
-    int index=0;
+
     for (auto &hop: *hops) {
-        std::cerr << "aaa" << "\n";
-        auto traceroute_hop = traceroute_hops->at(index);
         // FIXME catch Tins::pdu_not_found
         auto &sent = hop.sent()->rfind_pdu<Tins::IP>();
-        std::cerr << "bbb" << "\n";
 /*        if (!broken_nat_) {
             if (sent.src_addr() != inner_ip.src_addr())
                 continue;
@@ -87,20 +84,17 @@ TracerouteResults::match_packet_tcp(const Tins::Packet &packet, std::shared_ptr<
         if (sent_tcp.seq() == tcp.ack_seq()-1){
             try {
                 hop.received(ip, packet.timestamp());
-                //hop.set_tcp(*hop.sent_timestamp(), packet.timestamp());
-                //Overwrite from the traceroute
-/*                hop.sent(*traceroute_hop.sent());
-                hop.sent_timestamp(*traceroute_hop.sent_timestamp());
-                hop.received(*traceroute_hop.received(), *traceroute_hop.received_timestamp());*/
                 return std::make_shared<Tins::IP>(ip);
             } catch (std::out_of_range) {
                 // this should never happen
                 throw;
             }
         }
-
-
     }
+    //Overwrite from the traceroute
+    //hop.sent(*traceroute_hop.sent());
+    /*hop.sent_timestamp(*traceroute_hop.sent_timestamp());
+    hop.received(*traceroute_hop.received(), *traceroute_hop.received_timestamp());*/
     return nullptr;
 }
 
@@ -221,7 +215,11 @@ void TracerouteResults::show(std::ostream &stream) {
 				std::stringstream rttss;
 				rttss << (hop.rtt() / 1000) << "." << (hop.rtt() % 1000) << " ms ";
 				stream << " RTT " << rttss.str();
-
+                if(hop.has_tcp()){
+                    std::stringstream syn_rttss;
+                    syn_rttss << (hop.rtt_tcp() / 1000) << "." << (hop.rtt_tcp() % 1000) << " ms ";
+                    stream << " SYN-RTT " <<  syn_rttss.str();
+                }
 				// print the ICMP type and code
 				Tins::ICMP icmp;
 				try {
