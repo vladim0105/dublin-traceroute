@@ -80,8 +80,9 @@ TracerouteResults::match_packet_tcp(const Tins::Packet &packet, std::shared_ptr<
             continue;
         // FIXME catch Tins::pdu_not_found
         auto &sent_tcp = hop.sent()->rfind_pdu<Tins::TCP>();
-
-        if (sent_tcp.seq() == tcp.ack_seq()-1){
+        // Can end up receiving two responses (from port 54 and port 80), we want to record the fastest response only
+        // which is why we only register it if nothing is already registered for this hop.
+        if (sent_tcp.seq() == tcp.ack_seq()-1 && !hop.received()){
             try {
                 hop.received(ip, packet.timestamp());
                 return std::make_shared<Tins::IP>(ip);
