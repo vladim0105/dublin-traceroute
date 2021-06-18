@@ -18,7 +18,7 @@
 
 #include <dublintraceroute/dublin_traceroute.h>
 
-const char *shortopts = "hvs:d:n:t:T:D:biNo:";
+const char *shortopts = "hvs:d:n:t:T:D:biNo:S";
 const struct option longopts[] = {
 	{"help", no_argument, NULL, 'h'},
 	{"version", no_argument, NULL, 'v'},

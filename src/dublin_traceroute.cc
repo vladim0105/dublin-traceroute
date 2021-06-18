@@ -357,12 +357,14 @@ std::shared_ptr<TracerouteResults> DublinTraceroute::tcp_traceroute(std::shared_
             }
             // Use the src address of the ICMP response
             Tins::IPv4Address remote_address = node.received()->src_addr();
-            // Remote port 80 seems to be the port that gets the most TCP responses
+            // Remote ports 80 and 53 seems to be the ports that gets the most TCP responses. If they do not respond on port 80, then they should respond on port 53 in most cases.
             auto *probe = new TCPv4Probe(remote_address, 80, port, node.sent()->ttl());
+            auto *probe2 = new TCPv4Probe(remote_address, 53, port, node.sent()->ttl());
             Tins::IP *packet;
             // Send it
             try {
                 packet = &probe->send();
+                probe2->send();
             } catch (std::runtime_error &e) {
                 tcp_listener_thread.join();
                 std::stringstream ss;
