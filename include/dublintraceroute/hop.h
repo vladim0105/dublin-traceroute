@@ -38,7 +38,8 @@ private:
 	bool last_hop_;
 	bool has_tcp_;
 public:
-	Hop(): last_hop_(false), has_tcp_(false) { }
+	Hop(): last_hop_(false), has_tcp_(false), received_timestamp_(nullptr), sent_timestamp_(nullptr), tcp_sent_timestamp_(
+            nullptr), tcp_received_timestamp_(nullptr) { }
 	std::shared_ptr<Tins::IP> sent() { return sent_; }
 	std::shared_ptr<Tins::IP> received() { return received_; }
 	std::string name() { return name_; }
