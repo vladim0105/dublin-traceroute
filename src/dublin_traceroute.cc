@@ -239,12 +239,11 @@ std::shared_ptr<TracerouteResults> DublinTraceroute::traceroute() {
 				ss << "Cannot send packet: " << e.what();
 				throw DublinTracerouteException(ss.str());
 			}
-			auto now = Tins::Timestamp::current_time();
 
 			try {
 				Hop hop;
 				hop.sent(*packet);
-				hop.sent_timestamp(now);
+				hop.sent_timestamp(Tins::Timestamp::current_time());
 				hops.push_back(hop);
 			} catch (std::runtime_error e) {
 				std::stringstream ss;
