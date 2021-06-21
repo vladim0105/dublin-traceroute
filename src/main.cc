@@ -261,17 +261,18 @@ main(int argc, char **argv) {
 	std::streambuf *buf;
 	std::ofstream of;
 	if (output_file == "") {
-		buf = std::cout.rdbuf();
+		//buf = std::cout.rdbuf();
 	} else {
 		of.open(output_file);
 		buf = of.rdbuf();
+        std::ostream jsonfile(buf);
+        jsonfile << results->to_json() << std::endl;
+        if (output_file != "") {
+            std::cerr << "Saved JSON file to " << output_file << " ." << std::endl;
+            std::cerr << "You can convert it to DOT by running python3 -m dublintraceroute plot " << output_file << std::endl;
+        }
 	}
-	std::ostream jsonfile(buf);
-	jsonfile << results->to_json() << std::endl;
-	if (output_file != "") {
-		std::cerr << "Saved JSON file to " << output_file << " ." << std::endl;
-		std::cerr << "You can convert it to DOT by running python3 -m dublintraceroute plot " << output_file << std::endl;
-	}
+
 
 	std::exit(EXIT_SUCCESS);
 }
